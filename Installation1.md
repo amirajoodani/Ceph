@@ -10,18 +10,20 @@ chmod +x cephadm <br>
 cephadm --version (needs Docker Installation) <br>
 After Install Docker we can add below registery For resolving Image restriction <br>
 vi /etc/docker/deamon.json <br>
-{ <br>
-  "registery-mirrors":[ <br>
-    "https://repo.ficld.ir" <br>
+```yaml
+{ 
+  "registery-mirrors":[ 
+    "https://repo.ficld.ir" 
   ], <br>
-  "insecure-registries":[], <br>
-  "debug":false, <br>
-  "log-deriver":"local", <br>
-  "log-opts":{ <br>
-     "max-size":"500M", <br>
-     "max-file":"3", <br>
-  } <br>
-} <br>
+  "insecure-registries":[], 
+  "debug":false,
+  "log-deriver":"local", 
+  "log-opts":{ 
+     "max-size":"500M", 
+     "max-file":"3", 
+  } 
+} 
+```
 systemctl restart docker <br>
 cephadm --version <br>
 cephadm add -repo --release pacific <br>
