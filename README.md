@@ -14,7 +14,7 @@ vi /etc/docker/deamon.json <br>
 { 
   "registery-mirrors":[ 
     "https://repo.ficld.ir" 
-  ], <br>
+  ],
   "insecure-registries":[], 
   "debug":false,
   "log-deriver":"local", 
