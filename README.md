@@ -22,10 +22,14 @@ This is one of its biggest strengths. A single Ceph cluster can simultaneously p
 <b>Ceph's Storage Interfaces (How You Access It) </b><br>
 Ceph provides several gateway interfaces to access the storage, making it incredibly versatile.
 
-<b>Interface	Protocol	What it's For (Analogy)<b></br>
+<b>Interface	Protocol	What it's For (Analogy)</b></br>
 - Ceph Object Gateway (RGW)	S3 and Swift	Like Amazon S3 or Dropbox. Ideal for storing massive amounts of unstructured data like photos, videos, backups, and logs. This is one of the most popular use cases.
 - Ceph Block Device (RBD)	iSCSI-like block protocol	Like a virtual hard drive. Provides high-performance, reliable block storage that can be attached to virtual machines (e.g., in OpenStack, Kubernetes) or even physical servers.
 - Ceph Filesystem (CephFS)	POSIX-compliant file system	Like a traditional network drive (NFS/SMB) but distributed. Provides a shared file system that multiple clients can mount simultaneously, with high availability and scalability.
+
+<b>Ceph Architecture </b><br>
+<img width="837" height="534" alt="ceph1" src="https://github.com/user-attachments/assets/da51cda1-6718-459a-9a3a-e0204aae0b2b" /> <br>
+
 
 # Ceph Installation With Cephadm (Pacific Version )
 <b>1-Config Ssh For Connection Between Servers (Do it on all your servers )</b> <br>
