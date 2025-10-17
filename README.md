@@ -1,3 +1,18 @@
+# Waht is Ceph ?
+The High-Level Summary <br>
+At its core, Ceph is an open-source, software-defined storage platform designed to provide highly scalable, reliable, and performant storage for modern applications and data centers. Instead of relying on expensive, proprietary hardware, Ceph turns a cluster of standard servers (with their hard drives and SSDs) into a unified, intelligent, and resilient storage system. <br>
+<b>The Core Idea: The Ceph Storage Cluster</b>
+Imagine you have a room with 100 hard drives. Instead of managing them individually, Ceph logically pools them all together. When you store a file, Ceph doesn't just put it on one disk. It automatically:
+
+Chops the file into smaller pieces (objects).
+
+Replicates or erasure codes those pieces for data protection.
+
+Distributes the pieces across many different disks and servers in the cluster.
+
+This architecture is the key to all of Ceph's benefits.
+
+
 # Ceph Installation With Cephadm (Pacific Version )
 <b>1-Config Ssh For Connection Between Servers (Do it on all your servers )</b> <br>
 vi /etc/ssh/sshd_config <br>
