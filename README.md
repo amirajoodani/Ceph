@@ -29,8 +29,9 @@ Ceph provides several gateway interfaces to access the storage, making it incred
 
 <b>Ceph Architecture </b><br>
 <img width="837" height="534" alt="ceph1" src="https://github.com/user-attachments/assets/da51cda1-6718-459a-9a3a-e0204aae0b2b" /> <br>
+# How RADOS Works ? <br>
 
-Of course! RADOS is the true heart of Ceph. Understanding RADOS is key to understanding how Ceph achieves its remarkable scalability and reliability.
+RADOS is the true heart of Ceph. Understanding RADOS is key to understanding how Ceph achieves its remarkable scalability and reliability.
 
 **RADOS** stands for **Reliable Autonomic Distributed Object Store**. It's the foundational, scalable storage layer upon which all other Ceph services (RBD, RGW, CephFS) are built.
 
