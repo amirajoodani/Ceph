@@ -1,7 +1,7 @@
 # Waht is Ceph ?
-The High-Level Summary <br>
+<b>The High-Level Summary <b><br>
 At its core, Ceph is an open-source, software-defined storage platform designed to provide highly scalable, reliable, and performant storage for modern applications and data centers. Instead of relying on expensive, proprietary hardware, Ceph turns a cluster of standard servers (with their hard drives and SSDs) into a unified, intelligent, and resilient storage system. <br>
-<b>The Core Idea: The Ceph Storage Cluster</b>
+<b>The Core Idea: The Ceph Storage Cluster</b><br>
 Imagine you have a room with 100 hard drives. Instead of managing them individually, Ceph logically pools them all together. When you store a file, Ceph doesn't just put it on one disk. It automatically:
 
 Chops the file into smaller pieces (objects).
