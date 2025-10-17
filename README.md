@@ -142,7 +142,7 @@ Let's say a client wants to write an object named `"vm-image-part-1"` to a pool 
 In essence, **RADOS is a sophisticated, self-managing, and massively scalable "object storage engine" that provides the bedrock upon which Ceph's unified storage capabilities are delivered.**
 
 # What is the Role of MON ? <br>
-Of course! Let's dive deep into the role of the **MON (Monitor) daemon** in Ceph.
+Let's dive deep into the role of the **MON (Monitor) daemon** in Ceph.
 
 ### The High-Level Analogy
 
