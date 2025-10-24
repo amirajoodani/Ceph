@@ -1652,6 +1652,93 @@ Explanation:
 # cluster map :
 <img width="307" height="444" alt="clustermap" src="https://github.com/user-attachments/assets/d21421b9-f1d7-4e10-b305-60922175a249" /><br>
 
+Ah, good question! Let’s break down **PRI-AFF** in the output of `ceph osd tree` clearly.
+
+---
+
+## 🧱 What is PRI-AFF?
+
+**PRI-AFF** stands for **Primary Affinity**.
+
+* It is a **weight between 0 and 1** that tells Ceph how likely an OSD is to be chosen as the **primary OSD** for a Placement Group (PG).
+* Ceph chooses one OSD in each PG as **primary** and the others as **replicas** (secondary/tertiary).
+* **PRI-AFF = 1.0** → OSD can be primary normally.
+* **PRI-AFF < 1.0** → OSD is **less preferred** as primary.
+* **PRI-AFF = 0.0** → OSD will **never be chosen** as primary, but can still store replicas.
+
+---
+
+## ⚙️ Why is PRI-AFF useful?
+
+* **Control load distribution**: Some OSDs may be **slower (HDD)** or **faster (SSD/NVMe)**.
+
+  * You can **lower PRI-AFF** on slower OSDs to reduce primary load.
+* **Maintenance / decommission**: Temporarily lower PRI-AFF to avoid using certain OSDs as primary without marking them out.
+* **Balancing**: Helps in **avoiding hotspots** where certain OSDs handle too many primary PGs.
+
+---
+
+## ⚙️ How PRI-AFF affects PG placement
+
+When a PG is created:
+
+1. Ceph calculates the **CRUSH map**.
+2. It chooses **primary OSD** for the PG.
+3. **PRI-AFF weight** is applied:
+
+   * PGs are **less likely** to pick OSDs with PRI-AFF < 1 as primary.
+   * Secondary replicas are **not affected** by PRI-AFF.
+
+Example `ceph osd tree` output:
+
+```
+ID  CLASS  WEIGHT  STATUS  REWEIGHT  PRI-AFF
+ 0   hdd    0.93150  up      1.00000   1.00000
+ 1   hdd    0.93150  up      1.00000   0.70000
+ 2   ssd    0.46575  up      1.00000   1.00000
+```
+
+* OSD 0 → Normal, primary PGs distributed normally.
+* OSD 1 → Less likely to be chosen as primary because PRI-AFF = 0.7.
+* OSD 2 → High-speed SSD, normal primary selection.
+
+---
+
+## ⚙️ How to adjust PRI-AFF
+
+You can **set or change PRI-AFF** for an OSD:
+
+```bash
+ceph osd primary-affinity osd.<id> <value>
+```
+
+Example:
+
+```bash
+ceph osd primary-affinity osd.1 0.5
+```
+
+* This makes OSD 1 **half as likely** to be chosen as a primary PG.
+
+Check PRI-AFF for all OSDs:
+
+```bash
+ceph osd tree
+```
+
+---
+
+### 🧾 Summary
+
+| Field       | Meaning                                                                       |
+| ----------- | ----------------------------------------------------------------------------- |
+| **PRI-AFF** | Primary Affinity — likelihood that an OSD is chosen as primary for a PG (0–1) |
+| **1.0**     | Fully eligible as primary                                                     |
+| **<1.0**    | Less likely to be primary                                                     |
+| **0.0**     | Never chosen as primary (still stores replicas)                               |
+
+---
+
 # Ceph Installation With Cephadm (Pacific Version )
 <b>1-Config Ssh For Connection Between Servers (Do it on all your servers )</b> <br>
 vi /etc/ssh/sshd_config <br>
