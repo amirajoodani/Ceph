@@ -1649,6 +1649,8 @@ Explanation:
 5. Uses **in-memory caches** to accelerate metadata operations.
 
 ---
+# cluster map :
+<img width="307" height="444" alt="clustermap" src="https://github.com/user-attachments/assets/d21421b9-f1d7-4e10-b305-60922175a249" /><br>
 
 # Ceph Installation With Cephadm (Pacific Version )
 <b>1-Config Ssh For Connection Between Servers (Do it on all your servers )</b> <br>
