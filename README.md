@@ -397,6 +397,111 @@ If you have a pool named `rbd` with 3 replicas:
 | **OSD Backend** | How OSDs store data on physical disks        | BlueStore, FileStore      |
 
 ---
+## 🧱 What is BlueStore?
+
+**BlueStore** is the **default and modern storage backend** used by Ceph OSDs to store object data directly on raw block devices.
+
+It **replaced FileStore**, which used a filesystem (like XFS) as an intermediate layer.
+BlueStore eliminates this filesystem layer to improve **performance, efficiency, and reliability**.
+
+So, instead of:
+
+```
+Ceph → FileStore → XFS → Disk
+```
+
+You now have:
+
+```
+Ceph → BlueStore → Disk (raw)
+```
+
+This direct access gives Ceph:
+
+* Better performance (no double buffering)
+* Less overhead
+* Better space efficiency
+* Built-in data checksumming and compression
+
+---
+
+## ⚙️ Main Components of BlueStore
+
+BlueStore consists of **three main logical parts**:
+
+| Component                 | Description                                                                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **BlueFS**                | A tiny internal filesystem used only by BlueStore to store metadata, rocksdb data, and small internal files. It’s optimized for Ceph’s needs and not a general-purpose FS. |
+| **RocksDB**               | A key-value database embedded inside BlueStore that keeps all metadata, such as object locations, extents, and attributes.                                                 |
+| **Allocator**             | Manages free/used space on the device efficiently (decides where to write new data).                                                                                       |
+| **Write-ahead log (WAL)** | Used for consistency — ensures data integrity during crashes or power failures. Often stored on a faster device (SSD/NVMe).                                                |
+| **Data area**             | The main area on the disk where actual object data (the payload) is stored.                                                                                                |
+
+---
+
+### 🗂️ Typical BlueStore Device Layout
+
+If you look at an OSD’s storage, you’ll usually find **three partitions or devices** (sometimes combined):
+
+| Name          | Purpose                                               | Typical Storage Device                            |
+| ------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| **block**     | The main data store (where object data is written)    | HDD or SSD                                        |
+| **block.db**  | Holds RocksDB data and small metadata for performance | SSD/NVMe                                          |
+| **block.wal** | Write-ahead log for journaling                        | SSD/NVMe (optional, often merged with `block.db`) |
+
+You can see this layout with:
+
+```bash
+ceph-bluestore-tool show-label --dev /dev/sdX
+```
+
+---
+
+## 🔍 How BlueStore Works (Simplified Flow)
+
+1. A client writes an object to Ceph.
+2. The OSD receives it and passes it to BlueStore.
+3. BlueStore:
+
+   * Writes metadata to RocksDB.
+   * Allocates space in the data area.
+   * Writes the actual object data directly to the raw block device.
+   * Updates the log (WAL) if needed for consistency.
+4. Once acknowledged, data is safely stored without using any external filesystem.
+
+---
+
+## 🧩 Comparison: BlueStore vs. FileStore
+
+| Feature          | **BlueStore**                | **FileStore**                      |
+| ---------------- | ---------------------------- | ---------------------------------- |
+| Filesystem Layer | None (direct on raw device)  | Uses XFS                           |
+| Performance      | Higher (no double buffering) | Lower                              |
+| Space Efficiency | Better                       | Lower (due to filesystem overhead) |
+| Metadata Storage | RocksDB                      | Filesystem metadata                |
+| Data Integrity   | Built-in checksums           | Relies on FS                       |
+| Default in Ceph  | Yes (since Luminous)         | Deprecated                         |
+
+---
+
+## 📊 Summary Diagram
+
+```
+          ┌────────────────────────────┐
+          │          Ceph OSD          │
+          ├────────────────────────────┤
+          │        BlueStore           │
+          │   ├──────────────┬───────┐ │
+          │   │  RocksDB     │ BlueFS│ │
+          │   └──────────────┴───────┘ │
+          │        │                    │
+          │   Write-Ahead Log (WAL)     │
+          │        │                    │
+          │     Data Area (block)       │
+          └────────┴────────────────────┘
+```
+
+---
 Let’s look at a **real-world example** of how **BlueStore** organizes its storage components on a Ceph OSD node.
 
 You can check this directly on any Ceph node (usually under `/var/lib/ceph/osd/ceph-<id>`).
@@ -515,113 +620,97 @@ Example output:
 | **block.wal** | Write-ahead log    | SSD/NVMe (optional) |
 
 ---
+Awesome 🔍 — here’s how you can **identify which OSDs use which NVMe devices** for `block.db` and `block.wal` across your entire Ceph cluster.
 
-Would you like me to show you **how to identify which OSD uses which NVMe device** for `block.db` and `block.wal` across all nodes (with a single command)? This is useful for performance audits.
-
-
-## 🧱 What is BlueStore?
-
-**BlueStore** is the **default and modern storage backend** used by Ceph OSDs to store object data directly on raw block devices.
-
-It **replaced FileStore**, which used a filesystem (like XFS) as an intermediate layer.
-BlueStore eliminates this filesystem layer to improve **performance, efficiency, and reliability**.
-
-So, instead of:
-
-```
-Ceph → FileStore → XFS → Disk
-```
-
-You now have:
-
-```
-Ceph → BlueStore → Disk (raw)
-```
-
-This direct access gives Ceph:
-
-* Better performance (no double buffering)
-* Less overhead
-* Better space efficiency
-* Built-in data checksumming and compression
+This is very useful for **performance analysis**, **capacity planning**, or when you’re trying to confirm that your metadata and WAL are on faster storage (like NVMe or SSD).
 
 ---
 
-## ⚙️ Main Components of BlueStore
+## 🧠 1. Using `ceph-volume lvm list`
 
-BlueStore consists of **three main logical parts**:
-
-| Component                 | Description                                                                                                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **BlueFS**                | A tiny internal filesystem used only by BlueStore to store metadata, rocksdb data, and small internal files. It’s optimized for Ceph’s needs and not a general-purpose FS. |
-| **RocksDB**               | A key-value database embedded inside BlueStore that keeps all metadata, such as object locations, extents, and attributes.                                                 |
-| **Allocator**             | Manages free/used space on the device efficiently (decides where to write new data).                                                                                       |
-| **Write-ahead log (WAL)** | Used for consistency — ensures data integrity during crashes or power failures. Often stored on a faster device (SSD/NVMe).                                                |
-| **Data area**             | The main area on the disk where actual object data (the payload) is stored.                                                                                                |
-
----
-
-### 🗂️ Typical BlueStore Device Layout
-
-If you look at an OSD’s storage, you’ll usually find **three partitions or devices** (sometimes combined):
-
-| Name          | Purpose                                               | Typical Storage Device                            |
-| ------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| **block**     | The main data store (where object data is written)    | HDD or SSD                                        |
-| **block.db**  | Holds RocksDB data and small metadata for performance | SSD/NVMe                                          |
-| **block.wal** | Write-ahead log for journaling                        | SSD/NVMe (optional, often merged with `block.db`) |
-
-You can see this layout with:
+Run the following command on **each Ceph node**:
 
 ```bash
-ceph-bluestore-tool show-label --dev /dev/sdX
+sudo ceph-volume lvm list | egrep "osd.|block|DB Device|WAL Device"
 ```
+
+This gives a concise view showing which block, DB, and WAL devices each OSD uses.
+Example output:
+
+```
+====== osd.0 ======
+  [block]       /dev/sdc
+      DB Device       /dev/nvme0n1p1
+      WAL Device      /dev/nvme0n1p2
+====== osd.1 ======
+  [block]       /dev/sdd
+      DB Device       /dev/nvme0n1p1
+      WAL Device      /dev/nvme0n1p2
+====== osd.2 ======
+  [block]       /dev/sde
+      DB Device       None
+      WAL Device      None
+```
+
+You can immediately see:
+
+* **osd.0** and **osd.1** share the same NVMe for DB/WAL.
+* **osd.2** stores both data and metadata on the same HDD (no NVMe).
 
 ---
 
-## 🔍 How BlueStore Works (Simplified Flow)
+## 🧩 2. Using a Cleaner Output (Script Format)
 
-1. A client writes an object to Ceph.
-2. The OSD receives it and passes it to BlueStore.
-3. BlueStore:
+If you want a **clean table** with only the important info, run this shell snippet:
 
-   * Writes metadata to RocksDB.
-   * Allocates space in the data area.
-   * Writes the actual object data directly to the raw block device.
-   * Updates the log (WAL) if needed for consistency.
-4. Once acknowledged, data is safely stored without using any external filesystem.
+```bash
+sudo ceph-volume lvm list | awk '
+/osd\.[0-9]+/ {osd=$2}
+/block\]/ {getline; block=$2}
+/DB Device/ {db=$3}
+/WAL Device/ {wal=$3; print osd, block, db, wal}
+' | column -t
+```
+
+✅ Output example:
+
+```
+osd.0  /dev/sdc  /dev/nvme0n1p1  /dev/nvme0n1p2
+osd.1  /dev/sdd  /dev/nvme0n1p1  /dev/nvme0n1p2
+osd.2  /dev/sde  None             None
+```
+
+This table shows:
+
+* Each **OSD ID**
+* Its **block device** (main data area)
+* Its **block.db** and **block.wal** devices (if any)
 
 ---
 
-## 🧩 Comparison: BlueStore vs. FileStore
+## 🧭 3. From the Ceph CLI (Cluster-Wide Overview)
 
-| Feature          | **BlueStore**                | **FileStore**                      |
-| ---------------- | ---------------------------- | ---------------------------------- |
-| Filesystem Layer | None (direct on raw device)  | Uses XFS                           |
-| Performance      | Higher (no double buffering) | Lower                              |
-| Space Efficiency | Better                       | Lower (due to filesystem overhead) |
-| Metadata Storage | RocksDB                      | Filesystem metadata                |
-| Data Integrity   | Built-in checksums           | Relies on FS                       |
-| Default in Ceph  | Yes (since Luminous)         | Deprecated                         |
+If your cluster has multiple nodes and you have passwordless SSH or Ansible access, you can get this info from all OSD nodes in one go:
+
+```bash
+for host in $(ceph node ls osd | jq -r '.[].host' | sort -u); do
+  echo "===== $host ====="
+  ssh $host "sudo ceph-volume lvm list | egrep 'osd.|block|DB Device|WAL Device'"
+done
+```
+
+This will print per-host results across the entire cluster.
 
 ---
 
-## 📊 Summary Diagram
+## 🧾 Summary
 
-```
-          ┌────────────────────────────┐
-          │          Ceph OSD          │
-          ├────────────────────────────┤
-          │        BlueStore           │
-          │   ├──────────────┬───────┐ │
-          │   │  RocksDB     │ BlueFS│ │
-          │   └──────────────┴───────┘ │
-          │        │                    │
-          │   Write-Ahead Log (WAL)     │
-          │        │                    │
-          │     Data Area (block)       │
-          └────────┴────────────────────┘
-```
+| Field         | Description                                      |
+| ------------- | ------------------------------------------------ |
+| **block**     | Main data area (often HDD or large SSD)          |
+| **block.db**  | RocksDB metadata (NVMe/SSD recommended)          |
+| **block.wal** | Write-ahead log (optional, NVMe/SSD recommended) |
+| **osd.N**     | OSD ID number that uses those devices            |
 
 ---
 
