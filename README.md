@@ -1738,7 +1738,7 @@ ceph osd tree
 | **0.0**     | Never chosen as primary (still stores replicas)                               |
 
 ---
-Of course! This is a fundamental and excellent question for understanding Ceph.
+# what is Object in Ceph ?
 
 In Ceph, an **Object** is the most basic unit of data storage. It's the atomic entity where your actual data (files, blocks, etc.) ends up being stored on the physical disk drives.
 
