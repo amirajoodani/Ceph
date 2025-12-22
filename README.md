@@ -1902,7 +1902,7 @@ In Ceph, you create **Erasure Coded Pools**. When you write an object to this po
 *   **Key Trade-off:** Higher CPU usage for encoding/decoding and potentially higher latency for reads (when chunks are missing).
 *   **Primary Use:** Ideal for storing large, cold, or archival data where storage efficiency is more important than raw performance.
 
-**The number of PGs (Placement Groups) in each Ceph pool is one of the most critical configurations**, directly impacting performance, load balancing, and recovery.
+## The number of PGs (Placement Groups) in each Ceph pool is one of the most critical configurations**, directly impacting performance, load balancing, and recovery.
 
 ## **📊 General Guidelines (Rule of Thumb)**
 
