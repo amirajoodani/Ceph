@@ -2058,3 +2058,254 @@ ceph pg dump_stuck stale
 | CephFS pools | 256-512 |
 
 **Final recommendation**: Start with a conservative value (e.g., 128) and increase based on monitoring and needs. Always use **powers of two** and make changes during low-load periods.
+
+---
+## **Ceph Replication Strategies: size, min_size Explained**
+
+### **📊 Core Replication Parameters**
+
+```bash
+# View current settings
+ceph osd pool get <pool-name> size
+ceph osd pool get <pool-name> min_size
+
+# Set parameters
+ceph osd pool set <pool-name> size <value>
+ceph osd pool set <pool-name> min_size <value>
+```
+
+---
+
+## **1. `size` - Replication Factor**
+
+### **Definition**
+`size` represents the **total number of copies** (replicas) of each object stored across the cluster.
+
+### **Typical Values**
+- **3**: Standard production setting (default)
+- **2**: For cost-sensitive environments (less resilient)
+- **4+**: For high-criticality data (financial, healthcare)
+
+### **How it works**
+```bash
+# Example: size=3
+Object "A" → Stored on OSD 1, OSD 5, OSD 9 (3 copies total)
+```
+
+### **Impact on Operations**
+- **Write operations**: Must succeed on `min_size` replicas to acknowledge client
+- **Read operations**: Can read from any available replica
+- **Space efficiency**: Actual space used = Object size × `size`
+
+---
+
+## **2. `min_size` - Minimum Available Replicas**
+
+### **Definition**
+`min_size` is the **minimum number of replicas** that must be available for write operations to proceed.
+
+### **Key Concept**
+- **Default**: `min_size = size - 1` (for size=3, min_size=2)
+- **Ensures data safety** during partial failures
+
+### **Behavior Examples**
+
+#### **Example 1: Standard configuration (size=3, min_size=2)**
+```bash
+# Normal operation: All 3 replicas healthy
+Write → Success (all 3 replicas updated)
+
+# One OSD fails: 2 replicas remain
+Write → Still succeeds (2 ≥ min_size=2)
+Read → Still works (from remaining replicas)
+
+# Two OSDs fail: Only 1 replica remains
+Write → BLOCKED (1 < min_size=2)
+Read → Still works (if client can access the remaining replica)
+```
+
+#### **Example 2: Conservative configuration (size=3, min_size=3)**
+```bash
+# Any OSD failure
+Write → BLOCKED immediately
+# Maximum safety, minimum availability
+```
+
+#### **Example 3: Aggressive configuration (size=3, min_size=1)**
+```bash
+# Two OSDs fail: Only 1 replica remains
+Write → STILL SUCCEEDS
+# Maximum availability, minimum safety
+```
+
+---
+
+## **3. Trade-off Matrix**
+
+| Configuration | Data Safety | Availability | Use Case |
+|--------------|-------------|--------------|----------|
+| **size=3, min_size=2** | High | High | **Default - Balanced** |
+| **size=3, min_size=1** | Low | Very High | Performance-critical, temporary data |
+| **size=3, min_size=3** | Very High | Low | Critical data, write once |
+| **size=2, min_size=1** | Medium | High | Development, non-critical |
+| **size=4, min_size=3** | Very High | High | Financial, medical records |
+
+---
+
+## **4. Recovery Behavior**
+
+### **During OSD Failure**
+1. **If available replicas ≥ min_size**: Writes continue, recovery happens in background
+2. **If available replicas < min_size**: Writes block until recovery restores min_size replicas
+
+### **Recovery Priority**
+Ceph automatically:
+1. **Restores to `min_size` first** (unblocks writes)
+2. **Then restores to full `size`** (completes replication)
+
+---
+
+## **5. Erasure Coding vs. Replication**
+
+### **Replicated Pools**
+```bash
+# Traditional replication
+size=3, min_size=2
+Space efficiency: 33% (3x overhead)
+```
+
+### **Erasure Coded Pools**
+```bash
+# Example: k=6, m=2 (6+2)
+# Can lose any 2 OSDs without data loss
+Space efficiency: 75% (k/(k+m) = 6/8)
+# min_size typically = k (6 in this case)
+```
+
+---
+
+## **6. Practical Configuration Examples**
+
+### **Example 1: Production Block Storage**
+```bash
+# RBD pool for VMs
+ceph osd pool create rbd.vms 1024 1024 replicated
+ceph osd pool set rbd.vms size 3
+ceph osd pool set rbd.vms min_size 2
+# Result: Tolerates 1 OSD failure without blocking writes
+```
+
+### **Example 2: High-Availability Object Storage**
+```bash
+# RGW pool for web assets
+ceph osd pool create rgw.assets 1024 1024 replicated
+ceph osd pool set rgw.assets size 4
+ceph osd pool set rgw.assets min_size 2
+# Result: Can lose 2 OSDs, still writeable (but degraded safety)
+```
+
+### **Example 3: Critical Database Backups**
+```bash
+# Backup pool for databases
+ceph osd pool create backups.critical 512 512 replicated
+ceph osd pool set backups.critical size 4
+ceph osd pool set backups.critical min_size 3
+# Result: Maximum safety, blocks writes if 2 OSDs fail
+```
+
+---
+
+## **7. Monitoring and Alerts**
+
+### **Health Checks**
+```bash
+# Check pool health
+ceph health detail
+
+# Check pool statistics
+ceph osd pool stats
+
+# Check per-pool availability
+ceph pg dump | grep -E "(pool|active|undersized|degraded)"
+```
+
+### **Important Metrics**
+- **`active+clean`**: All replicas present and healthy
+- **`undersized`**: Fewer than `size` replicas (but ≥ `min_size`)
+- **`degraded`**: Fewer than `min_size` replicas (WRITES BLOCKED!)
+
+---
+
+## **8. Decision Framework**
+
+### **Choose `size` based on:**
+1. **Durability requirements**: How many simultaneous failures must you survive?
+2. **Cost constraints**: Storage budget vs. redundancy need
+3. **Performance needs**: More replicas = more write latency
+
+### **Choose `min_size` based on:**
+1. **Availability needs**: Can you tolerate blocked writes during failures?
+2. **Data criticality**: How important is consistency vs. availability?
+3. **Recovery speed**: How quickly can you repair failures?
+
+### **General Recommendations**
+```bash
+# For most production workloads:
+size = 3
+min_size = 2  # (size - 1)
+
+# For critical data with fast recovery:
+size = 3
+min_size = 2
+
+# For maximum availability (temporary/cache data):
+size = 2
+min_size = 1
+
+# For write-once critical archives:
+size = 4
+min_size = 3
+```
+
+---
+
+## **9. Advanced: `size` vs `min_size` Mathematics**
+
+### **Failure Tolerance**
+```
+Maximum tolerable failures without data loss = size - min_size
+Maximum tolerable failures without blocking writes = size - min_size
+```
+
+### **Examples:**
+- **size=3, min_size=2**: Can lose 1 OSD without blocking writes
+- **size=4, min_size=2**: Can lose 2 OSDs without blocking writes
+- **size=4, min_size=3**: Can lose only 1 OSD without blocking writes
+
+---
+
+## **10. Changing Parameters Safely**
+
+```bash
+# ALWAYS change min_size first when decreasing
+ceph osd pool set mypool min_size 2
+ceph osd pool set mypool size 3
+
+# When increasing size, monitor recovery
+ceph osd pool set mypool size 4
+# Wait for rebalancing to complete
+ceph -w  # Watch recovery progress
+```
+
+### **⚠️ Critical Warning**
+Never set `min_size = 1` for critical data! A single successful write followed by OSD failure = **DATA LOSS**.
+
+---
+
+## **Summary**
+- **`size`**: Total redundancy level (how many copies)
+- **`min_size`**: Minimum operational requirement (availability threshold)
+- **Balance**: Higher `min_size` = safer but less available
+- **Default**: `size=3, min_size=2` is the sweet spot for most use cases
+
+The right combination depends entirely on your **availability requirements**, **data criticality**, and **failure recovery capabilities**.
