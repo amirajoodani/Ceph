@@ -1902,4 +1902,157 @@ In Ceph, you create **Erasure Coded Pools**. When you write an object to this po
 *   **Key Trade-off:** Higher CPU usage for encoding/decoding and potentially higher latency for reads (when chunks are missing).
 *   **Primary Use:** Ideal for storing large, cold, or archival data where storage efficiency is more important than raw performance.
 
+**The number of PGs (Placement Groups) in each Ceph pool is one of the most critical configurations**, directly impacting performance, load balancing, and recovery.
 
+## **📊 General Guidelines (Rule of Thumb)**
+
+| Number of OSDs in Pool | Recommended PGs (per pool) | Total Cluster PGs |
+|------------------------|---------------------------|-------------------|
+| Fewer than 5 OSDs      | 128                       | Less than 1000    |
+| 5-10 OSDs              | 512                       | 2000-4000         |
+| 10-50 OSDs             | 1024                      | 4000-16000        |
+| More than 50 OSDs      | 2048-4096                 | 16000+            |
+
+## **🔢 Precise Calculation Formulas**
+
+### **Method 1: Calculation based on target PG per OSD**
+
+```
+PGs = (Total_OSDs × Target_PGs_per_OSD) / Replication_Factor
+```
+
+- **Target_PGs_per_OSD**: Typically between 50 and 200
+- **Optimal value**: 100-150
+
+**Example**:
+- 12 OSDs, Replication=3
+- `PGs = (12 × 100) / 3 = 400`
+- Nearest power of two: 512
+
+### **Method 2: Using the official Ceph calculator**
+
+```bash
+ceph osd pool calc-pg-num <pool-name> <target-pgs-per-osd>
+```
+
+## **📈 Criteria for Determining Optimal Value**
+
+### **1. PG per OSD count**
+- **Minimum**: 50 PG per OSD
+- **Optimal**: 100-150 PG per OSD  
+- **Maximum**: 200-300 PG per OSD
+
+### **2. Pool size (capacity)**
+| Pool Size | Recommended PGs |
+|-----------|----------------|
+| Less than 1TB | 128-256        |
+| 1-10TB        | 512            |
+| 10-50TB       | 1024           |
+| More than 50TB | 2048-4096     |
+
+### **3. Workload type**
+- **General purpose**: 128-512
+- **RBD (Block Storage)**: 128-256 per 100 OSDs
+- **CephFS**: 256-512
+- **RGW (Object Storage)**: 512-1024 (depending on bucket count)
+
+## **⚠️ Consequences of Incorrect Settings**
+
+### **❌ Too few PGs (Under-sharding)**
+- Load imbalance (specific OSDs become overloaded)
+- Performance bottlenecks
+- Slow recovery
+- **Symptoms**: Some OSDs full, others empty
+
+### **❌ Too many PGs (Over-sharding)**
+- High management overhead (CPU and RAM usage)
+- Delayed peering operations
+- Increased memory consumption (each PG ~50-100MB RAM)
+- **Symptoms**: High CPU on OSDs, slow peering
+
+## **🎯 Best Practice (Step-by-Step)**
+
+### **Step 1: Gather information**
+```bash
+# Number of active OSDs
+ceph osd stat
+
+# Information about existing pools
+ceph osd pool ls detail
+
+# Current PG status
+ceph pg dump
+```
+
+### **Step 2: Calculate using formula**
+```bash
+# Automatic calculation by Ceph
+ceph osd pool calc-pg-num <pool-name> 100
+```
+
+### **Step 3: Set values (must be power of two)**
+Values should be **powers of two**:
+- 128, 256, 512, 1024, 2048, 4096
+
+### **Step 4: Configuration**
+```bash
+# Set pg_num (must be increased incrementally)
+ceph osd pool set <pool-name> pg_num <value>
+ceph osd pool set <pool-name> pgp_num <value>  # Usually equal to pg_num
+```
+
+## **📊 Complete Practical Example**
+
+**Scenario**:
+- Cluster: 24 OSDs
+- 3 pools:
+  - `rbd-pool` (Block): 60% of data
+  - `rgw-pool` (Object): 30% of data
+  - `cephfs-pool` (File): 10% of data
+- Replication: 3x
+
+**Calculation**:
+```
+Total target PGs = 24 OSDs × 100 PG/OSD = 2400
+Total PGs = 2400 / 3 = 800
+```
+
+**Distribution among pools**:
+- `rbd-pool`: 60% × 800 ≈ 480 → **512 PGs**
+- `rgw-pool`: 30% × 800 ≈ 240 → **256 PGs**
+- `cephfs-pool`: 10% × 800 ≈ 80 → **128 PGs**
+
+## **🛠️ Monitoring and Adjustment**
+
+### **Check current status**
+```bash
+# Check PG balance
+ceph osd df tree
+
+# Check PG status
+ceph pg stat
+
+# Unhealthy PGs
+ceph pg dump_stuck inactive
+ceph pg dump_stuck unclean
+ceph pg dump_stuck stale
+```
+
+### **Golden rules**
+1. **Never have pg_num > pgp_num**
+2. **Incremental increase**: Maximum 2x per step
+3. **pgp_num = pg_num** (usually)
+4. **Check before changes**: `ceph health detail`
+
+## **🎯 Summary Recommendations**
+
+| Scenario | Recommended PGs |
+|----------|----------------|
+| Small test cluster (<5 OSDs) | 128 |
+| Medium production cluster (10-30 OSDs) | 512-1024 |
+| Large cluster (>50 OSDs) | 1024-4096 |
+| RBD pools | 128-256 |
+| RGW pools | 512-1024 |
+| CephFS pools | 256-512 |
+
+**Final recommendation**: Start with a conservative value (e.g., 128) and increase based on monitoring and needs. Always use **powers of two** and make changes during low-load periods.
