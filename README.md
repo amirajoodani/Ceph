@@ -2309,3 +2309,201 @@ Never set `min_size = 1` for critical data! A single successful write followed b
 - **Default**: `size=3, min_size=2` is the sweet spot for most use cases
 
 The right combination depends entirely on your **availability requirements**, **data criticality**, and **failure recovery capabilities**.
+
+**What does `target size ratio` mean in Ceph?**
+
+`target_size_ratio` in Ceph is a crucial parameter for **automated pool size management** within the **CRUSH rule** framework. It is used to control the distribution of data across multiple storage pools **based on a specified proportion** rather than evenly.
+
+---
+
+### Core Concept:
+By default, Ceph distributes data **equally** among all pools unless `target_size_ratio` is configured.  
+This parameter allows you to define **what fraction of the cluster's total usable capacity** each pool should occupy.
+
+---
+
+### Practical Example:
+Assume a cluster with a **total usable capacity of 10 TB** and two pools:
+- Pool A: `target_size_ratio = 0.75`
+- Pool B: `target_size_ratio = 0.25`
+
+This means:
+- **Pool A** should consume approximately **75%** of the total capacity (i.e., 7.5 TB).
+- **Pool B** should consume approximately **25%** of the total capacity (i.e., 2.5 TB).
+
+Ceph will automatically rebalance Placement Groups (PGs) to maintain these ratios as data is written or deleted.
+
+---
+
+### How to Set:
+```bash
+# Set target_size_ratio for a pool
+ceph osd pool set <pool-name> target_size_ratio <ratio>
+```
+Example:
+```bash
+ceph osd pool set pool-a target_size_ratio 0.75
+ceph osd pool set pool-b target_size_ratio 0.25
+```
+
+---
+
+### Key Notes:
+1. **Value range**: `target_size_ratio` accepts values between **0.0 and 1.0** (decimal).
+2. **Sum of ratios**: The sum of `target_size_ratio` across all pools **should not exceed 1.0**. If it does, Ceph normalizes the values.
+3. **Requirement**: This parameter **only takes effect** when `pg_autoscale_mode` is set to `on` or `warn`.
+4. To check autoscale status:
+   ```bash
+   ceph osd pool autoscale-status
+   ```
+5. If `target_size_ratio` is not set, Ceph defaults to **equal distribution** among pools.
+
+---
+
+### Difference from `target_size_bytes`:
+- `target_size_ratio`: Specifies a **relative proportion** of the cluster's total capacity.
+- `target_size_bytes`: Specifies an **absolute size** (e.g., 10 TB).
+- If both are set, **`target_size_bytes` takes precedence**.
+
+---
+
+### Practical Use Cases:
+- **Resource Management**: Assign a higher ratio to critical pools (e.g., databases) and a lower ratio to less important ones (e.g., logs).
+- **Performance Optimization**: Distribute capacity according to workload requirements.
+- **Capacity Planning**: Ensure specific workloads get a guaranteed share of cluster space.
+
+---
+
+### Summary:
+`target_size_ratio` is an **intelligent autoscaling mechanism** that enables automated capacity distribution across pools based on defined proportions. It simplifies storage management and helps maintain desired resource allocations in a Ceph cluster dynamically.
+
+Great question! **`target_size_ratio`** and **pool quotas** in Ceph serve different purposes and operate at different levels. Here's the detailed comparison:
+
+---
+
+## **1. Purpose & Goal**
+
+| **target_size_ratio** | **Pool Quota** |
+|----------------------|----------------|
+| **Capacity distribution guide** - Suggests how much of the **total cluster capacity** each pool should ideally use | **Hard enforcement limit** - Sets absolute maximums that cannot be exceeded |
+| **Recommendation for autoscaler** - Guides PG distribution but can be exceeded if needed | **Strict boundary** - Blocks writes once quota is reached |
+| **Relative** (percentage of total cluster) | **Absolute** (bytes or object count) |
+
+---
+
+## **2. How They Work**
+
+### **target_size_ratio**:
+- **Advisory/guidance** for the PG autoscaler
+- Affects **Placement Group (PG) distribution** across pools
+- Ceph tries to maintain these ratios but won't stop writes if exceeded
+- Works with `pg_autoscale_mode = on`
+
+### **Pool Quota**:
+- **Enforced limit** at the RADOS level
+- Two types:
+  - `quota_max_bytes`: Maximum bytes in pool
+  - `quota_max_objects`: Maximum objects in pool
+- **Hard stop** - Once reached, clients get `EDQUOT` (disk quota exceeded) errors
+- Immediate enforcement, no autoscaling involved
+
+---
+
+## **3. Example Scenario**
+
+**Cluster**: 100 TB total usable capacity
+
+```bash
+# Using target_size_ratio
+ceph osd pool set important-data target_size_ratio 0.6  # ~60 TB target
+ceph osd pool set backup-data target_size_ratio 0.4     # ~40 TB target
+
+# Using quotas
+ceph osd pool set-quota important-data max_bytes 60T
+ceph osd pool set-quota backup-data max_bytes 40T
+```
+
+**What happens:**
+- With **`target_size_ratio`**: Both pools can technically use more than their ratios if needed
+- With **quotas**: Pools get blocked at exactly 60TB/40TB
+
+---
+
+## **4. Key Differences Table**
+
+| Aspect | target_size_ratio | Pool Quota |
+|--------|------------------|------------|
+| **Type** | Suggestion/Guidance | Enforcement/Limit |
+| **Enforcement** | Soft (can be exceeded) | Hard (cannot be exceeded) |
+| **Units** | Ratio (0.0-1.0) | Bytes or Object count |
+| **When applied** | During PG autoscaling | During client write operations |
+| **Error on exceed** | None (just imbalance) | `EDQUOT` (write fails) |
+| **Dynamic adjustment** | Yes (automatically rebalances) | No (manual change required) |
+| **Dependency** | Requires pg_autoscale_mode | Works independently |
+
+---
+
+## **5. Practical Scenarios**
+
+### **When to use target_size_ratio**:
+- You want **fair capacity distribution** across pools
+- You need **automatic rebalancing** as cluster grows/shrinks
+- You're okay with some pools exceeding their "fair share" temporarily
+- **Example**: Multiple departments sharing a cluster, each with "recommended" allocations
+
+### **When to use quotas**:
+- You need **strict capacity limits** (e.g., billing customers)
+- You must **prevent one pool from consuming all space**
+- **Compliance/regulatory** requirements for size limits
+- **Example**: Multi-tenant cloud storage with paid tiers
+
+---
+
+## **6. Can They Be Used Together?**
+
+**Yes, absolutely!** They complement each other:
+
+```bash
+# Set both for comprehensive management
+ceph osd pool set important-data target_size_ratio 0.6
+ceph osd pool set-quota important-data max_bytes 65T
+```
+
+This combination means:
+- **target_size_ratio 0.6**: "Try to keep this pool around 60TB (60% of cluster)"
+- **quota max_bytes 65T**: "But never let it exceed 65TB under any circumstances"
+
+---
+
+## **7. Monitoring Differences**
+
+```bash
+# Check ratio compliance (autoscale status)
+ceph osd pool autoscale-status
+
+# Check quota usage (actual enforcement)
+ceph df detail  # Shows quota columns
+# Or
+rados df
+```
+
+---
+
+## **8. Real-World Analogy**
+
+- **`target_size_ratio`** is like **"suggested portion sizes"** at a buffet - you can take more, but it's not ideal for others
+- **Pool quota** is like **"individual plate limits"** - you physically cannot take more than your plate holds
+
+---
+
+## **Summary Decision Guide**
+
+| Need | Use |
+|------|-----|
+| **"Fair share" distribution** | `target_size_ratio` |
+| **Hard limits for billing** | Quotas |
+| **Automatic adjustment to cluster changes** | `target_size_ratio` |
+| **Prevent runaway consumption** | Quotas |
+| **Both guidance AND hard limits** | Use both together |
+
+**Bottom line**: `target_size_ratio` is for **automated capacity planning**, while quotas are for **enforced capacity limits**. They solve different problems and can be effectively combined for robust pool management.
