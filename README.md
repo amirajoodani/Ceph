@@ -2507,3 +2507,227 @@ rados df
 | **Both guidance AND hard limits** | Use both together |
 
 **Bottom line**: `target_size_ratio` is for **automated capacity planning**, while quotas are for **enforced capacity limits**. They solve different problems and can be effectively combined for robust pool management.
+
+# **Ceph Compression Configuration**
+
+Ceph supports data compression at the pool level to optimize storage utilization. Let me explain the three parameters you mentioned:
+
+---
+
+## **1. `compression_algorithm = zstd`**
+
+**What it is:**  
+Specifies the compression algorithm to use. `zstd` (Zstandard) is a modern compression algorithm developed by Facebook.
+
+**Key characteristics of zstd:**
+- **Excellent compression ratio** (comparable to zlib but faster)
+- **Very fast decompression** (often 5-8x faster than zlib)
+- **Configurable compression levels** (1-22, default is 3)
+- **Good for real-time compression** (low CPU overhead)
+
+**Comparison with other algorithms:**
+- `zstd`: Best balance of speed and ratio (recommended)
+- `zlib`: Good ratio, slower than zstd
+- `snappy`: Very fast, lower compression ratio
+- `lz4`: Fast, moderate ratio
+
+**Example:**
+```bash
+ceph osd pool set <pool-name> compression_algorithm zstd
+```
+
+---
+
+## **2. `compression_mode = aggressive`**
+
+**What it is:**  
+Controls **when** compression should be applied.
+
+**Available modes:**
+
+| Mode | When Compression Occurs | Use Case |
+|------|------------------------|----------|
+| **`none`** | Never | Performance-critical, already compressed data |
+| **`passive`** | Only when hinted (client suggests) | Mixed workloads |
+| **`aggressive`** | Always (except when explicitly excluded) | Maximum space savings |
+| **`force`** | Always (ignore client hints) | Enforced compression |
+
+**`aggressive` mode details:**
+- **Compresses all data** that meets minimum size criteria
+- **Ignores client compression hints** (except `NO_COMPRESS`)
+- Best for **maximizing storage efficiency**
+- Higher CPU usage than passive mode
+
+**Example:**
+```bash
+ceph osd pool set <pool-name> compression_mode aggressive
+```
+
+---
+
+## **3. `compression_min_blob_size`**
+
+**What it is:**  
+The **minimum object size** (in bytes) that should be considered for compression.
+
+**Why it exists:**
+- Compressing very small objects often wastes CPU (negative ROI)
+- Overhead of compression metadata can exceed savings
+- Default is typically **0 bytes** (compress everything in aggressive mode)
+
+**Recommended settings:**
+```bash
+# Don't compress objects smaller than 512 bytes
+ceph osd pool set <pool-name> compression_min_blob_size 512
+
+# Or for more performance, set higher threshold (e.g., 4KB)
+ceph osd pool set <pool-name> compression_min_blob_size 4096
+```
+
+**Typical values:**
+- **512-4096 bytes**: Common for mixed workloads
+- **8192 bytes**: Better for performance
+- **0 bytes**: Compress everything (may hurt performance)
+
+---
+
+## **Complete Configuration Example**
+
+```bash
+# Create a pool with compression settings
+ceph osd pool create compressed-pool 128 128
+
+# Set compression algorithm
+ceph osd pool set compressed-pool compression_algorithm zstd
+
+# Set compression mode
+ceph osd pool set compressed-pool compression_mode aggressive
+
+# Set minimum blob size (4KB threshold)
+ceph osd pool set compressed-pool compression_min_blob_size 4096
+
+# Optional: Set compression level for zstd (1-22, default=3)
+ceph osd pool set compressed-pool compression_required_ratio 1.2
+```
+
+---
+
+## **4. Related Parameters**
+
+### **`compression_required_ratio`**
+- Minimum compression ratio to store compressed data
+- Example: `1.2` means "only store if compressed size ≤ 83% of original"
+- Default: `0.875` (87.5% of original or better)
+
+```bash
+ceph osd pool set <pool-name> compression_required_ratio 1.2
+```
+
+### **`compression_max_blob_size`**
+- Maximum object size to attempt compression
+- Large objects are split into chunks of this size for compression
+- Default: 0 (no limit)
+
+```bash
+ceph osd pool set <pool-name> compression_max_blob_size 131072  # 128KB chunks
+```
+
+---
+
+## **5. Performance Considerations**
+
+### **CPU Impact**
+```
+zstd compression levels:
+- Level 1-3: Fast, moderate ratio (good for general use)
+- Level 10+: Slower, better ratio (archival data)
+- Level 22: Maximum ratio (very slow)
+```
+
+### **Best Practices**
+1. **Test with your data**: Compression effectiveness varies by data type
+2. **Monitor CPU usage**: 
+   ```bash
+   ceph osd perf
+   top -p $(pgrep -f ceph-osd)
+   ```
+3. **Consider data type**:
+   - **Text/JSON/Logs**: High compression (60-80% savings)
+   - **Already compressed (images/video)**: Low savings (maybe 0-5%)
+   - **Encrypted data**: Random patterns (poor compression)
+
+---
+
+## **6. Monitoring Compression**
+
+```bash
+# Check compression stats per pool
+rados df
+
+# Detailed pool stats (shows compression ratio)
+ceph osd pool stats compressed-pool
+
+# Check actual compression savings
+ceph pg dump | grep -A5 compression
+```
+
+**Expected output metrics:**
+- **Compression ratio**: Original size / Compressed size
+- **Space saved**: Percentage reduction
+- **Compression speed**: MB/s compressed
+
+---
+
+## **7. When NOT to Use Compression**
+
+1. **CPU-bound systems**: If CPUs are already at high utilization
+2. **Already compressed data**: Images (JPEG/PNG), videos, encrypted data
+3. **Latency-sensitive applications**: Where compression delay matters
+4. **Very small objects**: Where metadata overhead dominates
+
+---
+
+## **8. Real-World Example Configuration**
+
+**For backup storage (prioritize space):**
+```bash
+ceph osd pool set backups compression_algorithm zstd
+ceph osd pool set backups compression_mode aggressive
+ceph osd pool set backups compression_min_blob_size 512
+ceph osd pool set backups compression_required_ratio 1.1
+```
+
+**For VM images (balance performance/space):**
+```bash
+ceph osd pool set vms compression_algorithm lz4
+ceph osd pool set vms compression_mode passive
+ceph osd pool set vms compression_min_blob_size 8192
+```
+
+**For database storage (performance first):**
+```bash
+ceph osd pool set db compression_algorithm none
+# or use fast compression only for large blobs
+ceph osd pool set db compression_algorithm zstd
+ceph osd pool set db compression_mode passive
+ceph osd pool set db compression_min_blob_size 65536
+```
+
+---
+
+## **Summary**
+
+| Parameter | Purpose | Recommended Value |
+|-----------|---------|-------------------|
+| **`compression_algorithm`** | Which algorithm to use | `zstd` (best balance) |
+| **`compression_mode`** | When to compress | `aggressive` (space saving) or `passive` (performance) |
+| **`compression_min_blob_size`** | Skip small objects | `4096-8192` bytes for performance |
+
+**Quick setup for general use:**
+```bash
+ceph osd pool set mypool compression_algorithm zstd
+ceph osd pool set mypool compression_mode aggressive
+ceph osd pool set mypool compression_min_blob_size 4096
+```
+
+Always test compression effectiveness with your specific workload before deploying in production!
